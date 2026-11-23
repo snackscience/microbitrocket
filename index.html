@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>마이크로비트 로켓 비행 분석 대시보드 (AI 리포트 포함)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-color: #f0f2f5;
+            overflow: hidden;
+        }
+
+        /* 상단 헤더 및 컨트롤 바 */
+        header {
+            background-color: #ffffff;
+            padding: 12px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+            z-index: 10;
+        }
+        .header-left { display: flex; align-items: center; gap: 15px; }
+        .header-left h2 { font-size: 20px; color: #1a1a1a; }
+        #status { font-size: 13px; font-weight: bold; color: #555; }
+
+        .controls { display: flex; gap: 8px; }
+        button {
+            padding: 8px 14px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 6px;
+            border: none;
+            transition: all 0.2s;
+        }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        #connectBtn { background-color: #4CAF50; color: white; }
+        #pauseBtn { background-color: #f44336; color: white; }
+        #aiAnalyzeBtn { background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%); color: white; }
+        #aiAnalyzeBtn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(37, 117, 252, 0.3); }
+        #resetBtn { background-color: #607d8b; color: white; }
+        #downloadBtn { background-color: #2196F3; color: white; }
+
+        /* 메인 컨텐츠 영역 */
+        main {
+            flex: 1;
+            display: flex;
+            padding: 16px;
+            gap: 16px;
+            min-height: 0;
+        }
+
+        /* 왼쪽 영역 */
+        .left-section {
+            flex: 7;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-height: 0;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 10px;
+        }
+        .metric-card {
+            background: #ffffff;
+            border-radius: 10px;
+            padding: 12px 14px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            border-left: 4px solid #00008B;
+        }
+        .metric-card.highlight { border-left-color: #e53935; }
+        .metric-card.state-card { border-left-color: #2e7d32; }
+        .metric-title { font-size: 12px; color: #666; font-weight: bold; margin-bottom: 4px; }
+        .metric-value { font-size: 21px; font-weight: bold; color: #1a1a1a; }
+        .metric-sub { font-size: 11px; color: #888; margin-top: 2px; }
+
+        #flightStateBadge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: bold;
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            text-align: center;
+        }
+
+        .chart-section {
+            flex: 1;
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 16px 20px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            min-height: 0;
+        }
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            min-height: 0;
+        }
+
+        /* 오른쪽 영역 (상단: 데이터 로그, 하단: AI 해석 리포트) */
+        .right-section {
+            flex: 3.3;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-width: 330px;
+            min-height: 0;
+        }
+
+        .log-section {
+            flex: 1.1;
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            min-height: 0;
+        }
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #f0f2f5;
+            margin-bottom: 6px;
+        }
+        .log-header h3 { font-size: 15px; color: #333; }
+        #recordCount { font-size: 12px; color: #666; font-weight: bold; }
+
+        .table-wrapper {
+            flex: 1;
+            overflow-y: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: center;
+            font-size: 12.5px;
+        }
+        thead th {
+            position: sticky;
+            top: 0;
+            background-color: #f8f9fa;
+            padding: 7px 4px;
+            border-bottom: 1px solid #dee2e6;
+            color: #495057;
+        }
+        tbody td {
+            padding: 6px 4px;
+            border-bottom: 1px solid #f1f3f5;
+            color: #212529;
+        }
+        tbody tr:first-child {
+            background-color: #eef5ff;
+            font-weight: bold;
+            color: #00008B;
+        }
+
+        /* AI 비행 해석 패널 */
+        .ai-section {
+            flex: 1;
+            background: linear-gradient(180deg, #f8faff 0%, #ffffff 100%);
+            border: 1.5px solid #d0e1ff;
+            border-radius: 12px;
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 2px 8px rgba(37, 117, 252, 0.08);
+            min-height: 0;
+        }
+        .ai-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #e1ecff;
+            margin-bottom: 10px;
+        }
+        .ai-header h3 {
+            font-size: 15px;
+            color: #1a4bb8;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        #aiReportContent {
+            flex: 1;
+            overflow-y: auto;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #2c3e50;
+        }
+        .ai-placeholder {
+            color: #7f8c8d;
+            font-size: 12.5px;
+            text-align: center;
+            margin-top: 30px;
+        }
+        .ai-badge {
+            display: inline-block;
+            background: #e8f0fe;
+            color: #1967d2;
+            font-weight: bold;
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-size: 11.5px;
+            margin-right: 4px;
+        }
+        .ai-list {
+            list-style: none;
+            margin-top: 6px;
+        }
+        .ai-list li {
+            margin-bottom: 8px;
+            padding-left: 10px;
+            border-left: 3px solid #2575fc;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-left">
+            <h2>🚀 마이크로비트 로켓 비행 분석기</h2>
+            <span id="status">블루투스 연결 대기 중...</span>
+        </div>
+        <div class="controls">
+            <button id="connectBtn">마이크로비트 연결</button>
+            <button id="pauseBtn" disabled>일시정지</button>
+            <button id="aiAnalyzeBtn" disabled>✨ AI 비행 분석</button>
+            <button id="resetBtn" disabled>초기화</button>
+            <button id="downloadBtn" disabled>CSV 저장</button>
+        </div>
+    </header>
+
+    <main>
+        <!-- 왼쪽: 비행 분석 패널 & 실시간 그래프 -->
+        <section class="left-section">
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <span class="metric-title">현재 가속도</span>
+                    <span class="metric-value" id="currAccelEl">0.0 m/s²</span>
+                    <span class="metric-sub" id="currGEl">0.00 G</span>
+                </div>
+                <div class="metric-card highlight">
+                    <span class="metric-title">최대 가속도 (충격)</span>
+                    <span class="metric-value" id="maxAccelEl" style="color: #e53935;">0.0 m/s²</span>
+                    <span class="metric-sub" id="maxGEl">최고 0.00 G</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-title">추정 속도 / 최고속도</span>
+                    <span class="metric-value" id="velocityEl">0.0 m/s</span>
+                    <span class="metric-sub" id="maxVelocityEl">최고 0.0 m/s</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-title">추정 고도 / 최고고도</span>
+                    <span class="metric-value" id="altitudeEl">0.0 m</span>
+                    <span class="metric-sub" id="maxAltitudeEl">최고 0.0 m</span>
+                </div>
+                <div class="metric-card state-card">
+                    <span class="metric-title">현재 비행 단계</span>
+                    <div id="flightStateBadge">대기 중</div>
+                    <span class="metric-sub" id="stateDescEl">영점 보정 대기</span>
+                </div>
+            </div>
+
+            <div class="chart-section">
+                <div class="chart-header">
+                    <span style="font-size: 14px; color: #555; font-weight: bold;">실시간 가속도 추이 (최근 10초)</span>
+                    <span id="calibInfoEl" style="font-size: 12px; color: #2575fc; font-weight: bold;">* 기준 중력(영점): 9.80 m/s²</span>
+                </div>
+                <div class="canvas-container">
+                    <canvas id="accelChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- 오른쪽: 데이터 로그 & AI 해석 리포트 -->
+        <section class="right-section">
+            <div class="log-section">
+                <div class="log-header">
+                    <h3>비행 데이터 로그</h3>
+                    <span id="recordCount">총 0건</span>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>시간</th>
+                                <th>가속도</th>
+                                <th>속도</th>
+                                <th>고도</th>
+                                <th>상태</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="ai-section">
+                <div class="ai-header">
+                    <h3>🤖 AI 비행 데이터 해석 리포트</h3>
+                </div>
+                <div id="aiReportContent">
+                    <div class="ai-placeholder">
+                        데이터 측정 후 상단의 <b>[✨ AI 비행 분석]</b> 버튼을 누르거나,<br>
+                        <b>[일시정지]</b>를 누르면 AI가 비행 궤적과 물리량을 자동 해석해 줍니다.
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const ACCEL_SERVICE_UUID = "e95d0753-251d-470a-a062-fa1922dfa9a8";
+        const ACCEL_DATA_UUID = "e95dca4b-251d-470a-a062-fa1922dfa9a8";
+
+        let isPaused = false;
+        let startTime = null;
+        let lastTime = null;
+        let rawTimeData = [];
+        let allRecordedData = [];
+
+        // 자동 영점 보정(Calibration) 변수
+        let baselineGravity = 9.8;
+        let calibrationSamples = [];
+        let isCalibrated = false;
+
+        // 로켓 물리량 계산 변수
+        let maxAccel = 0;
+        let maxAccelTime = "0.00";
+        let velocity = 0;
+        let maxVelocity = 0;
+        let altitude = 0;
+        let maxAltitude = 0;
+        let isLaunched = false;
+
+        Chart.register(ChartDataLabels);
+
+        // 그래프 라벨 겹침 완화를 위해 변화량이 큰 핵심 피크만 표시
+        function shouldShowLabel(context) {
+            const data = context.dataset.data;
+            const index = context.dataIndex;
+            if (index === data.length - 1) return true;
+            if (index > 0 && index < data.length - 1) {
+                const prev = data[index - 1];
+                const curr = data[index];
+                const next = data[index + 1];
+                const isPeak = curr > prev && curr > next;
+                const isValley = curr < prev && curr < next;
+                if ((isPeak || isValley) && (Math.abs(curr - prev) > 2.2 || Math.abs(curr - next) > 2.2)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // --- 1. 차트 초기 설정 ---
+        const ctx = document.getElementById('accelChart').getContext('2d');
+        const accelChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: '가속도 크기 (m/s²)',
+                    data: [],
+                    borderColor: '#00008B',
+                    borderWidth: 4,
+                    fill: false,
+                    tension: 0.4,
+                    spanGaps: true,
+                    borderJoinStyle: 'round',
+                    borderCapStyle: 'round',
+                    pointBackgroundColor: '#00008B',
+                    pointRadius: (context) => shouldShowLabel(context) ? 5 : 0,
+                    pointHoverRadius: 7
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: { display: false },
+                    datalabels: {
+                        color: '#00008B',
+                        align: 'top',
+                        offset: 5,
+                        font: { weight: 'bold', size: 12 },
+                        formatter: (value) => value.toFixed(1),
+                        display: (context) => shouldShowLabel(context) ? 'auto' : false
+                    }
+                },
+                scales: {
+                    x: {
+                        title: { display: true, text: '시간 (초 경과)', font: { weight: 'bold' } },
+                        grid: { display: true }
+                    },
+                    y: {
+                        title: { display: true, text: '가속도 (m/s²)', font: { weight: 'bold' } },
+                        min: 0,
+                        max: 40,
+                        ticks: { stepSize: 4 }
+                    }
+                }
+            }
+        });
+
+        // --- 2. 블루투스 연결 ---
+        document.getElementById('connectBtn').addEventListener('click', async () => {
+            try {
+                document.getElementById('status').innerText = "기기 검색 중...";
+                const bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: 'BBC micro:bit' }],
+                    optionalServices: [ACCEL_SERVICE_UUID]
+                });
+
+                bleDevice.addEventListener('gattserverdisconnected', () => {
+                    document.getElementById('status').innerText = "연결 끊김";
+                    document.getElementById('status').style.color = "red";
+                    document.getElementById('pauseBtn').disabled = true;
+                });
+
+                const server = await bleDevice.gatt.connect();
+                const service = await server.getPrimaryService(ACCEL_SERVICE_UUID);
+                const characteristic = await service.getCharacteristic(ACCEL_DATA_UUID);
+
+                await characteristic.startNotifications();
+                characteristic.addEventListener('characteristicvaluechanged', handleAccelData);
+
+                document.getElementById('status').innerText = "● 데이터 수신 중";
+                document.getElementById('status').style.color = "#2e7d32";
+                document.getElementById('pauseBtn').disabled = false;
+                document.getElementById('aiAnalyzeBtn').disabled = false;
+                document.getElementById('resetBtn').disabled = false;
+                document.getElementById('downloadBtn').disabled = false;
+
+                if (!startTime) {
+                    startTime = Date.now();
+                    lastTime = startTime;
+                }
+            } catch (error) {
+                console.error(error);
+                document.getElementById('status').innerText = "연결 실패: " + error.message;
+                document.getElementById('status').style.color = "red";
+            }
+        });
+
+        // --- 3. 비행 상태 판별 ---
+        function detectFlightState(accel_ms2) {
+            const badge = document.getElementById('flightStateBadge');
+            const desc = document.getElementById('stateDescEl');
+
+            if (accel_ms2 > baselineGravity + 4.0) {
+                isLaunched = true;
+                badge.innerText = "🚀 추진 / 충격";
+                badge.style.backgroundColor = "#ffebee";
+                badge.style.color = "#c62828";
+                desc.innerText = "고출력 가속 감지";
+                return "추진/충격";
+            }
+            if (accel_ms2 < baselineGravity - 5.5) {
+                badge.innerText = "🌌 관성 비행";
+                badge.style.backgroundColor = "#e3f2fd";
+                badge.style.color = "#1565c0";
+                desc.innerText = "무중력/자유낙하 구간";
+                return "관성비행";
+            }
+            if (Math.abs(accel_ms2 - baselineGravity) <= 1.8) {
+                badge.innerText = isLaunched ? "🪂 하강/안정" : "대기 중";
+                badge.style.backgroundColor = "#e8f5e9";
+                badge.style.color = "#2e7d32";
+                desc.innerText = "중력 평형 상태";
+                return isLaunched ? "안정" : "대기";
+            }
+
+            badge.innerText = "✈️ 비행 중";
+            badge.style.backgroundColor = "#fff3e0";
+            badge.style.color = "#ef6c00";
+            desc.innerText = "자세 변화 감지";
+            return "비행중";
+        }
+
+        // --- 4. 데이터 수신 및 물리량 적분 업데이트 ---
+        const logTableBody = document.getElementById('logTableBody');
+        const recordCountEl = document.getElementById('recordCount');
+
+        function handleAccelData(event) {
+            if (isPaused) {
+                lastTime = Date.now();
+                return;
+            }
+
+            const dataView = event.target.value;
+            const x = dataView.getInt16(0, true);
+            const y = dataView.getInt16(2, true);
+            const z = dataView.getInt16(4, true);
+
+            const strength = Math.sqrt(x * x + y * y + z * z);
+            const accel_ms2 = strength * (19.6 / 2048);
+            const gForce = accel_ms2 / 9.8;
+
+            // 초기 15개 샘플로 자동 영점(정지 중력) 보정
+            if (!isCalibrated) {
+                calibrationSamples.push(accel_ms2);
+                if (calibrationSamples.length >= 15) {
+                    const sum = calibrationSamples.reduce((a, b) => a + b, 0);
+                    baselineGravity = sum / calibrationSamples.length;
+                    isCalibrated = true;
+                    document.getElementById('calibInfoEl').innerText = `* 영점 자동 보정 완료: ${baselineGravity.toFixed(2)} m/s² (1G 기준)`;
+                }
+            }
+
+            const currentTime = Date.now();
+            const dt = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+            const timeElapsed = ((currentTime - startTime) / 1000).toFixed(2);
+
+            if (accel_ms2 > maxAccel) {
+                maxAccel = accel_ms2;
+                maxAccelTime = timeElapsed;
+            }
+
+            // 보정된 기준 중력(baselineGravity)을 빼서 순수 운동 가속도 산출
+            let netAccel = accel_ms2 - baselineGravity;
+            if (Math.abs(netAccel) < 0.6) netAccel = 0; // 미세 노이즈 컷
+
+            velocity += netAccel * dt;
+            if (velocity < 0 && !isLaunched) velocity = 0;
+            if (velocity > maxVelocity) maxVelocity = velocity;
+
+            altitude += velocity * dt;
+            if (altitude < 0) {
+                altitude = 0;
+                if (velocity < 0) velocity = 0;
+            }
+            if (altitude > maxAltitude) maxAltitude = altitude;
+
+            const stateText = detectFlightState(accel_ms2);
+
+            document.getElementById('currAccelEl').innerText = `${accel_ms2.toFixed(1)} m/s²`;
+            document.getElementById('currGEl').innerText = `${gForce.toFixed(2)} G`;
+            document.getElementById('maxAccelEl').innerText = `${maxAccel.toFixed(1)} m/s²`;
+            document.getElementById('maxGEl').innerText = `최고 ${(maxAccel / 9.8).toFixed(2)} G`;
+            document.getElementById('velocityEl').innerText = `${velocity.toFixed(1)} m/s`;
+            document.getElementById('maxVelocityEl').innerText = `최고 ${maxVelocity.toFixed(1)} m/s`;
+            document.getElementById('altitudeEl').innerText = `${altitude.toFixed(1)} m`;
+            document.getElementById('maxAltitudeEl').innerText = `최고 ${maxAltitude.toFixed(1)} m`;
+
+            const nowStr = new Date(currentTime).toLocaleTimeString('ko-KR', {
+                hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 2
+            });
+            allRecordedData.push({
+                timestamp: nowStr,
+                elapsed: parseFloat(timeElapsed),
+                accel: accel_ms2,
+                gForce: gForce,
+                velocity: velocity,
+                altitude: altitude,
+                state: stateText
+            });
+            recordCountEl.innerText = `총 ${allRecordedData.length}건`;
+
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${timeElapsed}s</td>
+                <td>${accel_ms2.toFixed(1)}</td>
+                <td>${velocity.toFixed(1)}</td>
+                <td>${altitude.toFixed(1)}</td>
+                <td>${stateText}</td>
+            `;
+            logTableBody.insertBefore(row, logTableBody.firstChild);
+            if (logTableBody.children.length > 100) {
+                logTableBody.removeChild(logTableBody.lastChild);
+            }
+
+            rawTimeData.push(currentTime);
+            accelChart.data.labels.push(timeElapsed);
+            accelChart.data.datasets[0].data.push(accel_ms2);
+
+            while (rawTimeData.length > 0 && (currentTime - rawTimeData[0]) > 10000) {
+                rawTimeData.shift();
+                accelChart.data.labels.shift();
+                accelChart.data.datasets[0].data.shift();
+            }
+
+            accelChart.update();
+        }
+
+        // --- 5. ✨ AI 비행 데이터 해석 엔진 ---
+        function generateAIFlightReport() {
+            const reportEl = document.getElementById('aiReportContent');
+            if (allRecordedData.length < 10) {
+                reportEl.innerHTML = `<div class="ai-placeholder">분석할 데이터가 충분하지 않습니다. 최소 1초 이상 데이터를 측정해 주세요.</div>`;
+                return;
+            }
+
+            const totalDuration = allRecordedData[allRecordedData.length - 1].elapsed;
+            const thrustEvents = allRecordedData.filter(d => d.state === "추진/충격");
+            const coastEvents = allRecordedData.filter(d => d.state === "관성비행");
+            const lastItem = allRecordedData[allRecordedData.length - 1];
+
+            // 구간별 타임라인 요약
+            let launchPhaseText = "";
+            if (thrustEvents.length > 0) {
+                const firstThrust = thrustEvents[0].elapsed;
+                const lastThrust = thrustEvents[thrustEvents.length - 1].elapsed;
+                launchPhaseText = `측정 시작 후 <b>${firstThrust}초</b> 시점에 첫 강한 가속(추진)이 감지되었으며, <b>${maxAccelTime}초</b> 지점에서 최대 <b>${maxAccel.toFixed(1)} m/s² (${(maxAccel/9.8).toFixed(2)}G)</b>의 정점을 기록했습니다. (강한 가속 활동 구간: ${firstThrust}초 ~ ${lastThrust}초)`;
+            } else {
+                launchPhaseText = `급격한 발사 추진(1.4G 이상) 구간은 감지되지 않았으며, 완만한 움직임이나 대기 상태만 기록되었습니다.`;
+            }
+
+            // 무중력 / 관성 비행 해석
+            let coastPhaseText = "";
+            if (coastEvents.length > 0) {
+                coastPhaseText = `중력이 상쇄되는 <b>관성 비행(무중력) 구간</b>이 약 ${(coastEvents.length * 0.02).toFixed(1)}초간 포착되었습니다. 이는 추진이 끝난 뒤 로켓이 상공으로 솟구치거나 자유낙하했음을 보여주는 핵심 지표입니다.`;
+            } else {
+                coastPhaseText = `가속도가 0에 가까워지는 무중력 자유낙하 구간은 뚜렷하게 나타나지 않았습니다.`;
+            }
+
+            // 최종 착륙 및 드리프트 진단
+            let landingAndDriftText = "";
+            const isCurrentlyStill = Math.abs(lastItem.accel - baselineGravity) <= 1.2;
+            if (isCurrentlyStill && lastItem.velocity > 3.0) {
+                landingAndDriftText = `현재 기기는 <b>${lastItem.accel.toFixed(1)} m/s²</b>로 정지(착륙) 상태이나, 비행 중 발생한 자세 회전 및 센서 적분 오차(드리프트)로 인해 추정 속도가 <b>${lastItem.velocity.toFixed(1)} m/s</b>로 남아 있습니다. 실제 최고 고도는 표시된 <b>${maxAltitude.toFixed(1)} m</b>보다 낮을 수 있습니다.`;
+            } else if (isCurrentlyStill) {
+                landingAndDriftText = `현재 기기는 정지 중력(<b>${baselineGravity.toFixed(1)} m/s²</b>) 수준으로 안정적으로 착륙·정지해 있으며, 영점 보정이 양호하게 작동했습니다.`;
+            } else {
+                landingAndDriftText = `측정이 종료된 시점에도 기기가 움직이거나 기울어진 상태(<b>${lastItem.accel.toFixed(1)} m/s²</b>)였습니다.`;
+            }
+
+            reportEl.innerHTML = `
+                <div style="margin-bottom: 8px; font-weight: bold; color: #1a1a1a;">
+                    📊 총 ${totalDuration.toFixed(1)}초 비행 요약 (${allRecordedData.length}개 샘플 분석)
+                </div>
+                <ul class="ai-list">
+                    <li><span class="ai-badge">추진 및 충격</span> ${launchPhaseText}</li>
+                    <li><span class="ai-badge">비행 궤적</span> ${coastPhaseText}</li>
+                    <li><span class="ai-badge">속도·고도 추정</span> 적분 계산상 최고 속도는 <b>${maxVelocity.toFixed(1)} m/s</b>, 최고 도달 고도는 <b>${maxAltitude.toFixed(1)} m</b>로 산출되었습니다.</li>
+                    <li><span class="ai-badge">착륙 및 센서 진단</span> ${landingAndDriftText}</li>
+                </ul>
+            `;
+        }
+
+        document.getElementById('aiAnalyzeBtn').addEventListener('click', generateAIFlightReport);
+
+        // --- 6. 일시정지 & 초기화 ---
+        const pauseBtn = document.getElementById('pauseBtn');
+        pauseBtn.addEventListener('click', () => {
+            isPaused = !isPaused;
+            if (isPaused) {
+                pauseBtn.innerText = "다시시작";
+                pauseBtn.style.backgroundColor = "#ff9800";
+                document.getElementById('status').innerText = "❚❚ 일시정지됨";
+                document.getElementById('status').style.color = "#ef6c00";
+                // 일시정지 시 자동으로 AI 분석 리포트 생성
+                generateAIFlightReport();
+            } else {
+                lastTime = Date.now();
+                pauseBtn.innerText = "일시정지";
+                pauseBtn.style.backgroundColor = "#f44336";
+                document.getElementById('status').innerText = "● 데이터 수신 중";
+                document.getElementById('status').style.color = "#2e7d32";
+            }
+        });
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            startTime = Date.now();
+            lastTime = startTime;
+            rawTimeData = [];
+            allRecordedData = [];
+            calibrationSamples = [];
+            isCalibrated = false;
+            maxAccel = 0;
+            maxAccelTime = "0.00";
+            velocity = 0;
+            maxVelocity = 0;
+            altitude = 0;
+            maxAltitude = 0;
+            isLaunched = false;
+
+            logTableBody.innerHTML = "";
+            recordCountEl.innerText = "총 0건";
+            document.getElementById('calibInfoEl').innerText = "* 영점 재보정 중...";
+            document.getElementById('aiReportContent').innerHTML = `<div class="ai-placeholder">데이터가 초기화되었습니다. 새로 측정한 뒤 <b>[✨ AI 비행 분석]</b>을 눌러주세요.</div>`;
+            accelChart.data.labels = [];
+            accelChart.data.datasets[0].data = [];
+            accelChart.update();
+        });
+
+        // --- 7. CSV 다운로드 ---
+        document.getElementById('downloadBtn').addEventListener('click', () => {
+            if (allRecordedData.length === 0) {
+                alert("다운로드할 데이터가 없습니다.");
+                return;
+            }
+
+            let csvContent = "\uFEFF측정시각,경과시간(초),가속도(m/s^2),중력배수(G),추정속도(m/s),추정고도(m),비행상태\n";
+            allRecordedData.forEach(item => {
+                csvContent += `${item.timestamp},${item.elapsed.toFixed(2)},${item.accel.toFixed(2)},${item.gForce.toFixed(2)},${item.velocity.toFixed(2)},${item.altitude.toFixed(2)},${item.state}\n`;
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            const fileName = `rocket_flight_data_${new Date().toISOString().slice(0,19).replace(/[:T]/g, '-')}.csv`;
+            link.setAttribute("href", url);
+            link.setAttribute("download", fileName);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        });
+    </script>
+</body>
+</html>
